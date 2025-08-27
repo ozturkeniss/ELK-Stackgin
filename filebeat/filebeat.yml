@@ -1,0 +1,37 @@
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/app/*.log
+  json.keys_under_root: true
+  json.add_error_key: true
+  json.message_key: message
+
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_kubernetes_metadata: ~
+
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+  indices:
+    - index: "filebeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+setup.kibana:
+  host: "kibana:5601"
+
+setup.dashboards.enabled: true
+setup.template.enabled: true
+setup.template.name: "filebeat"
+setup.template.pattern: "filebeat-*"
+setup.template.overwrite: true
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+
+logging.level: info
