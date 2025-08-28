@@ -82,7 +82,7 @@ func Connect(config *Config) (*gorm.DB, error) {
 func AutoMigrate(db *gorm.DB) error {
 	logger.Logger.Info("Starting database migration...")
 	
-	err := db.AutoMigrate(&model.User{})
+	err := db.AutoMigrate(&model.User{}, &model.LoginAttempt{}, &model.BanRecord{})
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}

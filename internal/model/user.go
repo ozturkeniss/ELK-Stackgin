@@ -48,3 +48,31 @@ type UserResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Login DTOs
+type LoginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+type LoginResponse struct {
+	User  UserResponse `json:"user"`
+	Token string       `json:"token,omitempty"`
+}
+
+// Ban system structures
+type LoginAttempt struct {
+	Username   string    `json:"username"`
+	IPAddress  string    `json:"ip_address"`
+	Success    bool      `json:"success"`
+	Timestamp  time.Time `json:"timestamp"`
+	UserAgent  string    `json:"user_agent"`
+}
+
+type BanRecord struct {
+	Username   string    `json:"username"`
+	IPAddress  string    `json:"ip_address"`
+	BannedAt   time.Time `json:"banned_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	Reason     string    `json:"reason"`
+}

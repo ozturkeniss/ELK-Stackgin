@@ -4,6 +4,7 @@ import (
 	"context"
 	"gorm.io/gorm"
 	"elk-stack-user/internal/model"
+	"time"
 )
 
 type UserRepository interface {
@@ -15,6 +16,13 @@ type UserRepository interface {
 	Update(ctx context.Context, user *model.User) error
 	Delete(ctx context.Context, id uint) error
 	Count(ctx context.Context) (int64, error)
+	// Login methods
+	GetUserForLogin(ctx context.Context, usernameOrEmail string) (*model.User, error)
+	RecordLoginAttempt(ctx context.Context, attempt *model.LoginAttempt) error
+	GetFailedAttempts(ctx context.Context, username, ipAddress string, since time.Time) ([]*model.LoginAttempt, error)
+	RecordBan(ctx context.Context, ban *model.BanRecord) error
+	IsBanned(ctx context.Context, username, ipAddress string) (*model.BanRecord, error)
+	RemoveExpiredBans(ctx context.Context) error
 }
 
 type userRepository struct {
@@ -77,4 +85,46 @@ func (r *userRepository) Count(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&model.User{}).Count(&count).Error
 	return count, err
+}
+
+func (r *userRepository) GetUserForLogin(ctx context.Context, usernameOrEmail string) (*model.User, error) {
+	var user model.User
+	err := r.db.WithContext(ctx).Where("username = ? OR email = ?", usernameOrEmail, usernameOrEmail).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *userRepository) RecordLoginAttempt(ctx context.Context, attempt *model.LoginAttempt) error {
+	return r.db.WithContext(ctx).Create(attempt).Error
+}
+
+func (r *userRepository) GetFailedAttempts(ctx context.Context, username, ipAddress string, since time.Time) ([]*model.LoginAttempt, error) {
+	var attempts []*model.LoginAttempt
+	err := r.db.WithContext(ctx).
+		Where("(username = ? OR ip_address = ?) AND success = ? AND timestamp > ?", 
+			username, ipAddress, false, since).
+		Find(&attempts).Error
+	return attempts, err
+}
+
+func (r *userRepository) RecordBan(ctx context.Context, ban *model.BanRecord) error {
+	return r.db.WithContext(ctx).Create(ban).Error
+}
+
+func (r *userRepository) IsBanned(ctx context.Context, username, ipAddress string) (*model.BanRecord, error) {
+	var ban model.BanRecord
+	err := r.db.WithContext(ctx).
+		Where("(username = ? OR ip_address = ?) AND expires_at > ?", 
+			username, ipAddress, time.Now()).
+		First(&ban).Error
+	if err != nil {
+		return nil, err
+	}
+	return &ban, nil
+}
+
+func (r *userRepository) RemoveExpiredBans(ctx context.Context) error {
+	return r.db.WithContext(ctx).Where("expires_at <= ?", time.Now()).Delete(&model.BanRecord{}).Error
 }

@@ -8,6 +8,7 @@ import (
 	"elk-stack-user/internal/model"
 	"elk-stack-user/internal/repository"
 	"golang.org/x/crypto/bcrypt"
+	"time"
 )
 
 type UserService interface {
@@ -17,6 +18,9 @@ type UserService interface {
 	GetAllUsers(ctx context.Context, page, pageSize int) ([]*model.UserResponse, int64, error)
 	UpdateUser(ctx context.Context, id uint, req *model.UpdateUserRequest) (*model.UserResponse, error)
 	DeleteUser(ctx context.Context, id uint) error
+	// Login methods
+	Login(ctx context.Context, req *model.LoginRequest, ipAddress, userAgent string) (*model.LoginResponse, error)
+	IsUserBanned(ctx context.Context, username, ipAddress string) (*model.BanRecord, error)
 }
 
 type userService struct {
@@ -168,4 +172,99 @@ func generateRandomString(length int) string {
 	bytes := make([]byte, length/2)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+// Login method with ban system
+func (s *userService) Login(ctx context.Context, req *model.LoginRequest, ipAddress, userAgent string) (*model.LoginResponse, error) {
+	// Check if user is banned
+	if ban, err := s.IsUserBanned(ctx, req.Username, ipAddress); err == nil && ban != nil {
+		return nil, errors.New("account temporarily banned due to multiple failed login attempts")
+	}
+
+	// Get user for login
+	user, err := s.userRepo.GetUserForLogin(ctx, req.Username)
+	if err != nil {
+		// Record failed attempt
+		s.recordFailedAttempt(ctx, req.Username, ipAddress, userAgent)
+		return nil, errors.New("invalid credentials")
+	}
+
+	// Check if user is active
+	if !user.IsActive {
+		return nil, errors.New("account is deactivated")
+	}
+
+	// Verify password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		// Record failed attempt
+		s.recordFailedAttempt(ctx, req.Username, ipAddress, userAgent)
+		
+		// Check if we should ban the user
+		if s.shouldBanUser(ctx, req.Username, ipAddress) {
+			s.banUser(ctx, req.Username, ipAddress, "Multiple failed login attempts")
+		}
+		
+		return nil, errors.New("invalid credentials")
+	}
+
+	// Record successful attempt
+	s.recordSuccessfulAttempt(ctx, req.Username, ipAddress, userAgent)
+
+	// Generate simple token (in production, use JWT)
+	token := generateRandomString(32)
+
+	return &model.LoginResponse{
+		User:  *s.toUserResponse(user),
+		Token: token,
+	}, nil
+}
+
+func (s *userService) IsUserBanned(ctx context.Context, username, ipAddress string) (*model.BanRecord, error) {
+	return s.userRepo.IsBanned(ctx, username, ipAddress)
+}
+
+// Helper methods for ban system
+func (s *userService) recordFailedAttempt(ctx context.Context, username, ipAddress, userAgent string) {
+	attempt := &model.LoginAttempt{
+		Username:  username,
+		IPAddress: ipAddress,
+		Success:   false,
+		Timestamp: time.Now(),
+		UserAgent: userAgent,
+	}
+	s.userRepo.RecordLoginAttempt(ctx, attempt)
+}
+
+func (s *userService) recordSuccessfulAttempt(ctx context.Context, username, ipAddress, userAgent string) {
+	attempt := &model.LoginAttempt{
+		Username:  username,
+		IPAddress: ipAddress,
+		Success:   true,
+		Timestamp: time.Now(),
+		UserAgent: userAgent,
+	}
+	s.userRepo.RecordLoginAttempt(ctx, attempt)
+}
+
+func (s *userService) shouldBanUser(ctx context.Context, username, ipAddress string) bool {
+	// Check failed attempts in the last 2 minutes
+	since := time.Now().Add(-2 * time.Minute)
+	failedAttempts, err := s.userRepo.GetFailedAttempts(ctx, username, ipAddress, since)
+	if err != nil {
+		return false
+	}
+	
+	// Ban if 3 or more failed attempts
+	return len(failedAttempts) >= 3
+}
+
+func (s *userService) banUser(ctx context.Context, username, ipAddress, reason string) {
+	ban := &model.BanRecord{
+		Username:  username,
+		IPAddress: ipAddress,
+		BannedAt:  time.Now(),
+		ExpiresAt: time.Now().Add(2 * time.Minute), // 2 minute ban
+		Reason:    reason,
+	}
+	s.userRepo.RecordBan(ctx, ban)
 }

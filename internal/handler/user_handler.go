@@ -256,3 +256,96 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// Login godoc
+// @Summary User login
+// @Description Authenticate user with username/email and password
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param credentials body model.LoginRequest true "Login credentials"
+// @Success 200 {object} model.LoginResponse
+// @Failure 400 {object} map[string]interface{}
+// @Failure 401 {object} map[string]interface{}
+// @Failure 423 {object} map[string]interface{}
+// @Router /login [post]
+func (h *UserHandler) Login(c *gin.Context) {
+	start := time.Now()
+	requestID := c.GetString("request_id")
+	
+	var req model.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Logger.Error("Invalid login request body",
+			logger.RequestID(requestID),
+			logger.Error(err),
+			logger.String("path", c.Request.URL.Path),
+			logger.String("method", c.Request.Method),
+		)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	logger.Logger.Info("Login attempt",
+		logger.RequestID(requestID),
+		logger.String("username", req.Username),
+		logger.String("ip", c.ClientIP()),
+		logger.String("user_agent", c.GetHeader("User-Agent")),
+	)
+
+	response, err := h.userService.Login(c.Request.Context(), &req, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		latency := time.Since(start)
+		
+		switch err.Error() {
+		case "invalid credentials":
+			logger.Logger.Warn("Login failed - invalid credentials",
+				logger.RequestID(requestID),
+				logger.String("username", req.Username),
+				logger.String("ip", c.ClientIP()),
+				logger.String("error", err.Error()),
+				logger.ResponseTime(latency),
+			)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		case "account temporarily banned due to multiple failed login attempts":
+			logger.Logger.Warn("Login blocked - account banned",
+				logger.RequestID(requestID),
+				logger.String("username", req.Username),
+				logger.String("ip", c.ClientIP()),
+				logger.String("error", err.Error()),
+				logger.ResponseTime(latency),
+			)
+			c.JSON(http.StatusLocked, gin.H{"error": err.Error()})
+		case "account is deactivated":
+			logger.Logger.Warn("Login failed - account deactivated",
+				logger.RequestID(requestID),
+				logger.String("username", req.Username),
+				logger.String("ip", c.ClientIP()),
+				logger.String("error", err.Error()),
+				logger.ResponseTime(latency),
+			)
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		default:
+			logger.Logger.Error("Login failed - unexpected error",
+				logger.RequestID(requestID),
+				logger.String("username", req.Username),
+				logger.String("ip", c.ClientIP()),
+				logger.Error(err),
+				logger.ResponseTime(latency),
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Login failed"})
+		}
+		return
+	}
+
+	latency := time.Since(start)
+	logger.Logger.Info("Login successful",
+		logger.RequestID(requestID),
+		logger.UserID(response.User.ID),
+		logger.String("username", response.User.Username),
+		logger.String("ip", c.ClientIP()),
+		logger.ResponseTime(latency),
+		logger.StatusCode(http.StatusOK),
+	)
+
+	c.JSON(http.StatusOK, response)
+}
