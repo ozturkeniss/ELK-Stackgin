@@ -31,7 +31,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=postgres123
       - DB_NAME=user_service
-      - ENV=development
+      - ENV=production
       - ELK_LOGSTASH_ADDR=logstash:5000
     ports:
       - "8080:8080"
@@ -43,7 +43,7 @@ services:
     networks:
       - elk-network
     volumes:
-      - ./logs:/var/log/app
+      - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -79,6 +79,7 @@ services:
     volumes:
       - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
       - ./logstash/pipeline/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./logs:/var/log/app:ro
     ports:
       - "5000:5000"
       - "9600:9600"
@@ -123,7 +124,6 @@ services:
     user: root
     volumes:
       - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-      - ./logs:/var/log/app:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
