@@ -11,6 +11,9 @@
 
 </div>
 
+
+<img width="1508" height="813" alt="Ekran Görüntüsü - 2025-08-28 14-35-41" src="https://github.com/user-attachments/assets/bd391723-3ac5-44b3-9163-a06863923316" />
+
 ---
 
 ## 📋 Table of Contents
